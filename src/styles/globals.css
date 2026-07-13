@@ -1,0 +1,70 @@
+.report-issue-button {
+  right: 1rem;
+  bottom: 1rem;
+}
+
+@media (max-width: 767px) {
+  .map-has-mobile-panel .map-navigation-panel {
+    bottom: calc(38dvh + 0.75rem);
+  }
+  .report-issue-button {
+    right: 0.75rem;
+    bottom: calc(38dvh + 4.25rem);
+  }
+}
+
+/* Leaflet controls remain reachable above mobile overlays and safe areas. */
+.karangwuni-map .leaflet-bottom.leaflet-right {
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+.karangwuni-map .leaflet-control-zoom {
+  margin: 0;
+  border: 0;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.karangwuni-map .leaflet-control-zoom a {
+  width: 2.75rem;
+  height: 2.75rem;
+  line-height: 2.75rem;
+  font-size: 1.35rem;
+}
+
+.map-location-control {
+  right: max(0.75rem, env(safe-area-inset-right));
+  top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.map-route-status {
+  left: 50%;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100% - 8rem);
+}
+
+@media (max-width: 767px) {
+  .map-has-mobile-panel .leaflet-bottom.leaflet-right {
+    bottom: calc(38dvh + 0.75rem);
+  }
+
+  .map-has-mobile-panel .map-location-control {
+    top: 7.25rem;
+  }
+
+  .map-has-mobile-panel .map-route-status {
+    bottom: calc(38dvh + 0.75rem);
+  }
+
+  .karangwuni-map .leaflet-control-zoom a {
+    width: 2.5rem;
+    height: 2.5rem;
+    line-height: 2.5rem;
+  }
+}
+.map-navigation-panel {
+  left: 50%;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+}
