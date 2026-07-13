@@ -1,7 +1,7 @@
 
   # UMKM Platform Setup
 
-  This is a code bundle for UMKM Platform Setup. The original project is available at https://www.figma.com/design/r5SPMfGWJ3I9S3FtzkROeO/UMKM-Platform-Setup.
+
 
   ## Running the code
 
