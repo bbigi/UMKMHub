@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents, ZoomControl } from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -67,11 +67,14 @@ function TrackingViewport({ location, tracking, hasRoute }: {
   return null;
 }
 
-export function KarangwuniMap({ className = "", pickLocation, selectedLocation, mobilePanelOffset = false }: {
+export function KarangwuniMap({ className = "", pickLocation, selectedLocation, mobilePanelOffset = false, query = "", category = "Semua", onMarkersChange }: {
   className?: string;
   pickLocation?: (lat: number, lng: number) => void;
   selectedLocation?: { lat: number; lng: number };
   mobilePanelOffset?: boolean;
+  query?: string;
+  category?: string;
+  onMarkersChange?: (items: UmkmMarker[]) => void;
 }) {
   const [markers, setMarkers] = useState<UmkmMarker[]>([]);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -81,13 +84,23 @@ export function KarangwuniMap({ className = "", pickLocation, selectedLocation, 
   const [locationStatus, setLocationStatus] = useState("");
   const [destination, setDestination] = useState<UmkmMarker | null>(null);
   const [travelMode, setTravelMode] = useState<TravelMode>("two-wheeler");
+  const [dataError, setDataError] = useState("");
   const watchId = useRef<number | null>(null);
 
   useEffect(() => {
     if (!supabase) return;
     supabase.from("umkm").select("id,nama_usaha,kategori,alamat,latitude,longitude").eq("status", "aktif")
-      .then(({ data }) => setMarkers((data ?? []) as UmkmMarker[]));
-  }, []);
+      .then(({ data, error }) => { const items = (data ?? []) as UmkmMarker[]; setMarkers(items); onMarkersChange?.(items); setDataError(error ? "Data UMKM belum dapat dimuat." : ""); });
+  }, [onMarkersChange]);
+
+  const visibleMarkers = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase("id-ID");
+    return markers.filter((item) => {
+      const matchesCategory = category === "Semua" || item.kategori.startsWith(category);
+      const searchable = `${item.nama_usaha} ${item.kategori} ${item.alamat}`.toLocaleLowerCase("id-ID");
+      return matchesCategory && (!normalizedQuery || searchable.includes(normalizedQuery));
+    });
+  }, [category, markers, query]);
 
   useEffect(() => () => {
     if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
@@ -167,7 +180,7 @@ export function KarangwuniMap({ className = "", pickLocation, selectedLocation, 
         {userLocation && <Circle center={userLocation} radius={18} pathOptions={{ color: "#2563EB", fillColor: "#3B82F6", fillOpacity: 0.9 }}><Popup>Lokasi Anda</Popup></Circle>}
         {route.length > 1 && <Polyline positions={route} pathOptions={{ color: "#2563EB", weight: 6, opacity: 0.85 }} />}
         <RouteViewport route={route} />
-        {markers.map((item) => (
+        {visibleMarkers.map((item) => (
           <Marker key={item.id} position={[item.latitude, item.longitude]}>
             <Popup>
               <strong>{item.nama_usaha}</strong><br />{item.kategori}<br />{item.alamat}<br />
@@ -188,6 +201,7 @@ export function KarangwuniMap({ className = "", pickLocation, selectedLocation, 
           <Navigation size={14} className="shrink-0 text-[#2563EB]" />{locationStatus || routeInfo}
         </div>
       )}
+      {dataError && <div className="absolute left-3 top-3 z-[1000] rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 shadow">{dataError}</div>}
       {destination && (
         <div className="map-navigation-panel absolute z-[1100] w-[min(22rem,calc(100%-1.5rem))] rounded-2xl border border-[#E4DFD8] bg-white p-3 shadow-2xl">
           <div className="mb-2 flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-[#1A1714]">Ke {destination.nama_usaha}</p><p className="truncate text-xs text-[#9B9489]">{destination.alamat}</p></div><button onClick={() => setDestination(null)} className="text-lg text-[#9B9489]" aria-label="Tutup">×</button></div>

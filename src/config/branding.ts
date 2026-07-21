@@ -7,5 +7,6 @@ export const BRANDING = {
   platformLogo,
   partnerName: "CONCERN",
   partnerLabel: "Mitra Teknologi",
+  partnerUrl: "https://concern-id.vercel.app/",
   partnerLogo,
 } as const;
