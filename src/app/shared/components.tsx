@@ -60,8 +60,8 @@ export function ReportIssueButton() {
 
 // ─── MAP CANVAS ───────────────────────────────────────────────────────────────
 
-export function MapCanvas({ className = "", query = "", category = "Semua", onMarkersChange }: { className?: string; query?: string; category?: string; onMarkersChange?: (items: UmkmMarker[]) => void }) {
-  return <KarangwuniMap className={className} mobilePanelOffset query={query} category={category} onMarkersChange={onMarkersChange} />;
+export function MapCanvas({ className = "", query = "", category = "Semua", onMarkersChange, focusBusinessId, focusBusinessKey }: { className?: string; query?: string; category?: string; onMarkersChange?: (items: UmkmMarker[]) => void; focusBusinessId?: string | null; focusBusinessKey?: number }) {
+  return <KarangwuniMap className={className} mobilePanelOffset query={query} category={category} onMarkersChange={onMarkersChange} focusBusinessId={focusBusinessId} focusBusinessKey={focusBusinessKey} />;
 }
 
 // ─── EMPTY STATE ──────────────────────────────────────────────────────────────

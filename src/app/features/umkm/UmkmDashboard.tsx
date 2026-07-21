@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { KarangwuniMap, KARANGWUNI_CENTER } from "../../components/KarangwuniMap";
 import { AppShell } from "../../layouts/AppShell";
-import { AnnouncementBanner, ReportIssueButton, StatCard, EmptyState, FInput, MapCanvas, Badge } from "../../shared/components";
+import { AnnouncementBanner, StatCard, EmptyState, FInput, MapCanvas, Badge } from "../../shared/components";
+import { ReportCenter } from "../reports/ReportCenter";
 import {
   Store, Building2, Shield, MapPin, Search, LogOut,
   Plus, Package, BarChart3, FileText, Map, TrendingUp,
@@ -13,20 +14,24 @@ import {
   Zap, Users, Globe,
 } from "lucide-react";
 
-type UmkmTab = "beranda" | "profil" | "produk";
-type Product = { id: string; name: string; description: string; price: number; image_url: string | null; status: string };
+type UmkmTab = "beranda" | "profil" | "produk" | "laporan";
+type Product = { id: string; name: string; description: string; price: number; image_url: string | null; image_path: string | null; status: string };
+type BusinessStatus = "belum_terdaftar" | "menunggu" | "aktif" | "ditolak";
 
 
 export function UmkmDashboard({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<UmkmTab>("beranda");
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [businessStatus, setBusinessStatus] = useState<BusinessStatus>("belum_terdaftar");
   const [profile, setProfile] = useState({ nama_usaha: "", no_whatsapp: "", kategori: "", deskripsi: "", alamat: "" });
   const [location, setLocation] = useState(KARANGWUNI_CENTER);
   const [saveStatus, setSaveStatus] = useState("");
   const [ownerSubmissionEnabled, setOwnerSubmissionEnabled] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [productFormOpen, setProductFormOpen] = useState(false);
-  const [productForm, setProductForm] = useState({ name: "", description: "", price: "", image_url: "" });
+  const [productForm, setProductForm] = useState({ name: "", description: "", price: "" });
+  const [productImage, setProductImage] = useState<File | null>(null);
+  const [productImagePreview, setProductImagePreview] = useState("");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productMessage, setProductMessage] = useState("");
   useEffect(() => {
@@ -34,9 +39,10 @@ export function UmkmDashboard({ onLogout }: { onLogout: () => void }) {
       .then(({ data }) => data && setOwnerSubmissionEnabled(data.owner_can_submit_umkm));
     supabase?.auth.getUser().then(async ({ data }) => {
       if (!data.user || !supabase) return;
-      const { data: business } = await supabase.from("umkm").select("id,nama_usaha,no_whatsapp,kategori,deskripsi,alamat,latitude,longitude").eq("owner_id", data.user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const { data: business } = await supabase.from("umkm").select("id,nama_usaha,no_whatsapp,kategori,deskripsi,alamat,latitude,longitude,status").eq("owner_id", data.user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (business) {
         setProfileId(business.id);
+        setBusinessStatus(business.status as BusinessStatus);
         setProfile({ nama_usaha: business.nama_usaha, no_whatsapp: business.no_whatsapp, kategori: business.kategori, deskripsi: business.deskripsi, alamat: business.alamat });
         setLocation({ lat: business.latitude, lng: business.longitude });
       } else {
@@ -47,7 +53,7 @@ export function UmkmDashboard({ onLogout }: { onLogout: () => void }) {
   }, []);
   useEffect(() => {
     if (!supabase || !profileId) return;
-    supabase.from("products").select("id,name,description,price,image_url,status").eq("umkm_id", profileId).order("created_at", { ascending: false })
+    supabase.from("products").select("id,name,description,price,image_url,image_path,status").eq("umkm_id", profileId).order("created_at", { ascending: false })
       .then(({ data }) => setProducts((data ?? []) as Product[]));
   }, [profileId]);
   const updateProfile = (key: keyof typeof profile, value: string) => setProfile((current) => ({ ...current, [key]: value }));
@@ -63,38 +69,72 @@ export function UmkmDashboard({ onLogout }: { onLogout: () => void }) {
       ? await supabase.from("umkm").update(payload).eq("id", profileId).select("id").single()
       : await supabase.from("umkm").insert(payload).select("id").single();
     if (result.data?.id) setProfileId(result.data.id);
+    if (!result.error) setBusinessStatus("menunggu");
     setSaveStatus(result.error ? `Gagal: ${result.error.message}` : "Profil berhasil disimpan dan menunggu verifikasi admin.");
   };
   const saveProduct = async () => {
     if (!supabase || !profileId) return setProductMessage("Simpan profil usaha terlebih dahulu.");
     const price = Number(productForm.price);
     if (!productForm.name.trim() || !Number.isFinite(price) || price < 0) return setProductMessage("Nama dan harga produk wajib valid.");
-    if (productForm.image_url && !/^https?:\/\//i.test(productForm.image_url)) return setProductMessage("URL gambar harus diawali http:// atau https://.");
-    const payload = { umkm_id: profileId, name: productForm.name.trim(), description: productForm.description.trim(), price, image_url: productForm.image_url.trim() || null };
+    const existingProduct = products.find((item) => item.id === editingProductId);
+    let imageUrl = existingProduct?.image_url ?? null;
+    let imagePath = existingProduct?.image_path ?? null;
+    let uploadedPath: string | null = null;
+
+    if (productImage) {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return setProductMessage("Sesi berakhir. Silakan masuk kembali.");
+      const extension = productImage.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      uploadedPath = `${userData.user.id}/${crypto.randomUUID()}.${extension}`;
+      setProductMessage("Mengunggah gambar...");
+      const { error: uploadError } = await supabase.storage.from("product-images").upload(uploadedPath, productImage, { contentType: productImage.type, upsert: false });
+      if (uploadError) return setProductMessage(`Gagal mengunggah gambar: ${uploadError.message}`);
+      imagePath = uploadedPath;
+      imageUrl = supabase.storage.from("product-images").getPublicUrl(uploadedPath).data.publicUrl;
+    }
+
+    const payload = { umkm_id: profileId, name: productForm.name.trim(), description: productForm.description.trim(), price, image_url: imageUrl, image_path: imagePath, status: "menunggu" };
     const { data, error } = editingProductId
-      ? await supabase.from("products").update(payload).eq("id", editingProductId).select("id,name,description,price,image_url,status").single()
-      : await supabase.from("products").insert({ ...payload, status: "menunggu" }).select("id,name,description,price,image_url,status").single();
-    if (error) return setProductMessage(`Gagal: ${error.message}`);
+      ? await supabase.from("products").update(payload).eq("id", editingProductId).select("id,name,description,price,image_url,image_path,status").single()
+      : await supabase.from("products").insert(payload).select("id,name,description,price,image_url,image_path,status").single();
+    if (error) {
+      if (uploadedPath) await supabase.storage.from("product-images").remove([uploadedPath]);
+      return setProductMessage(`Gagal: ${error.message}`);
+    }
+    if (uploadedPath && existingProduct?.image_path && existingProduct.image_path !== uploadedPath) await supabase.storage.from("product-images").remove([existingProduct.image_path]);
     setProducts((current) => editingProductId ? current.map((item) => item.id === editingProductId ? data as Product : item) : [data as Product, ...current]);
-    setProductForm({ name: "", description: "", price: "", image_url: "" }); setEditingProductId(null); setProductFormOpen(false); setProductMessage(editingProductId ? "Produk berhasil diperbarui." : "Produk dikirim untuk ditinjau admin.");
+    setProductForm({ name: "", description: "", price: "" }); setProductImage(null); setProductImagePreview(""); setEditingProductId(null); setProductFormOpen(false); setProductMessage(editingProductId ? "Produk berhasil diperbarui dan dikirim untuk ditinjau." : "Produk dikirim untuk ditinjau admin.");
   };
   const editProduct = (product: Product) => {
     setEditingProductId(product.id);
-    setProductForm({ name: product.name, description: product.description, price: String(product.price), image_url: product.image_url ?? "" });
+    setProductForm({ name: product.name, description: product.description, price: String(product.price) });
+    setProductImage(null); setProductImagePreview(product.image_url ?? "");
     setProductMessage(""); setProductFormOpen(true);
   };
-  const removeProduct = async (id: string) => {
+  const chooseProductImage = (file: File | undefined) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) return setProductMessage("Gunakan gambar JPG, PNG, WEBP, atau GIF.");
+    if (file.size > 5 * 1024 * 1024) return setProductMessage("Ukuran gambar maksimal 5 MB.");
+    if (productImagePreview.startsWith("blob:")) URL.revokeObjectURL(productImagePreview);
+    setProductImage(file); setProductImagePreview(URL.createObjectURL(file)); setProductMessage("");
+  };
+  const removeProduct = async (product: Product) => {
     if (!supabase || !window.confirm("Hapus produk ini?")) return;
-    const { error } = await supabase.from("products").delete().eq("id", id);
+    const { error } = await supabase.from("products").delete().eq("id", product.id);
     if (error) return setProductMessage(`Gagal: ${error.message}`);
-    setProducts((current) => current.filter((item) => item.id !== id));
+    if (product.image_path) {
+      const { error: storageError } = await supabase.storage.from("product-images").remove([product.image_path]);
+      if (storageError) setProductMessage("Produk dihapus, tetapi file gambar lama belum dapat dibersihkan.");
+    }
+    setProducts((current) => current.filter((item) => item.id !== product.id));
   };
   const tabs = [
     { id: "beranda" as const, icon: Home, label: "Beranda" },
     { id: "profil" as const, icon: Store, label: "Toko" },
     { id: "produk" as const, icon: Package, label: "Produk" },
+    { id: "laporan" as const, icon: FileText, label: "Laporan" },
   ];
-  const titles: Record<UmkmTab, string> = { beranda: "Beranda", profil: "Profil Toko", produk: "Produk Saya" };
+  const titles: Record<UmkmTab, string> = { beranda: "Beranda", profil: "Profil Toko", produk: "Produk Saya", laporan: "Laporan ke Admin" };
 
   return (
     <AppShell tabs={tabs} active={tab} onTabChange={(id) => setTab(id as UmkmTab)}
@@ -113,9 +153,9 @@ export function UmkmDashboard({ onLogout }: { onLogout: () => void }) {
               <div className="absolute right-0 top-0 w-40 h-40 bg-[#2E8C6A]/25 rounded-full -translate-y-14 translate-x-14 pointer-events-none" />
               <div className="absolute right-10 bottom-0 w-24 h-24 bg-[#155A3F]/35 rounded-full translate-y-8 pointer-events-none" />
               <div className="relative">
-                <Badge label="TOKO AKTIF" color="green" />
+                <Badge label={businessStatus === "belum_terdaftar" ? "BELUM TERDAFTAR" : `TOKO ${businessStatus.toUpperCase()}`} color={businessStatus === "aktif" ? "green" : businessStatus === "menunggu" ? "orange" : "gray"} />
                 <h2 className="font-extrabold text-white text-lg mt-2 mb-1 leading-tight" style={{ fontFamily: "var(--font-display)" }}>
-                  Lengkapi toko agar tampil di peta
+                  {businessStatus === "aktif" ? "Toko Anda sudah tampil di peta" : businessStatus === "menunggu" ? "Profil sedang ditinjau admin" : businessStatus === "ditolak" ? "Perbarui profil untuk diajukan kembali" : "Lengkapi toko agar tampil di peta"}
                 </h2>
                 <p className="text-[#8ECFB4] text-xs leading-relaxed mb-4">Tambah produk dan atur lokasi untuk menjangkau lebih banyak pembeli.</p>
                 <button onClick={() => setTab("profil")}
@@ -184,14 +224,16 @@ export function UmkmDashboard({ onLogout }: { onLogout: () => void }) {
 
         {tab === "produk" && (
           <>
-            <button onClick={() => { setEditingProductId(null); setProductForm({ name: "", description: "", price: "", image_url: "" }); setProductFormOpen((open) => !open); }} className="w-full flex items-center justify-center gap-2 bg-[#1B6B4E] text-white font-bold text-sm py-3.5 rounded-2xl hover:bg-[#155a3f] transition-colors cursor-pointer">
+            <button onClick={() => { setEditingProductId(null); setProductForm({ name: "", description: "", price: "" }); setProductImage(null); setProductImagePreview(""); setProductFormOpen((open) => !open); }} className="w-full flex items-center justify-center gap-2 bg-[#1B6B4E] text-white font-bold text-sm py-3.5 rounded-2xl hover:bg-[#155a3f] transition-colors cursor-pointer">
               <Plus size={14} /> Tambah Produk Baru
             </button>
-            {productFormOpen && <div className="space-y-3 rounded-2xl border border-[#EEEBE4] bg-white p-4"><p className="text-sm font-bold">{editingProductId ? "Edit Produk" : "Produk Baru"}</p><FInput label="Nama Produk" placeholder="Nama produk" value={productForm.name} onChange={(name) => setProductForm((form) => ({ ...form, name }))} /><FInput label="Harga" type="number" placeholder="0" value={productForm.price} onChange={(price) => setProductForm((form) => ({ ...form, price }))} /><FInput label="URL Gambar" type="url" placeholder="https://..." value={productForm.image_url} onChange={(image_url) => setProductForm((form) => ({ ...form, image_url }))} /><textarea value={productForm.description} onChange={(event) => setProductForm((form) => ({ ...form, description: event.target.value }))} rows={3} placeholder="Deskripsi produk" className="w-full rounded-xl border bg-[#F8F5F0] p-3 text-sm" /><button onClick={saveProduct} className="w-full rounded-xl bg-[#1B6B4E] py-3 text-sm font-bold text-white">{editingProductId ? "Simpan Perubahan" : "Simpan Produk"}</button></div>}
+            {productFormOpen && <div className="space-y-3 rounded-2xl border border-[#EEEBE4] bg-white p-4"><p className="text-sm font-bold">{editingProductId ? "Edit Produk" : "Produk Baru"}</p><FInput label="Nama Produk" placeholder="Nama produk" value={productForm.name} onChange={(name) => setProductForm((form) => ({ ...form, name }))} /><FInput label="Harga" type="number" placeholder="0" value={productForm.price} onChange={(price) => setProductForm((form) => ({ ...form, price }))} /><div><label className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-[#6B6558]">Foto Produk</label><label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#D8D4CC] bg-[#F8F5F0] p-4 text-center">{productImagePreview ? <img src={productImagePreview} alt="Preview produk" className="mb-2 h-40 w-full rounded-xl object-cover" /> : <Package size={24} className="mb-2 text-[#9B9489]" />}<span className="text-xs font-bold text-[#1B6B4E]">Pilih gambar</span><span className="mt-1 text-[10px] text-[#9B9489]">JPG, PNG, WEBP, atau GIF · maks. 5 MB</span><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => chooseProductImage(event.target.files?.[0])} className="sr-only" /></label></div><textarea value={productForm.description} onChange={(event) => setProductForm((form) => ({ ...form, description: event.target.value }))} rows={3} placeholder="Deskripsi produk" className="w-full rounded-xl border bg-[#F8F5F0] p-3 text-sm" /><button onClick={saveProduct} className="w-full rounded-xl bg-[#1B6B4E] py-3 text-sm font-bold text-white">{editingProductId ? "Simpan Perubahan" : "Simpan Produk"}</button></div>}
             {productMessage && <p className="rounded-xl bg-[#F0EDE7] px-3 py-2 text-xs text-[#6B6558]">{productMessage}</p>}
-            <div className="space-y-2">{products.length === 0 ? <div className="bg-white border border-[#EEEBE4] rounded-2xl"><EmptyState icon={Package} title="Belum ada produk" desc="Tambahkan produk agar muncul di peta dan hasil pencarian pembeli." /></div> : products.map((product) => <article key={product.id} className="rounded-2xl border border-[#EEEBE4] bg-white p-4">{product.image_url && <img src={product.image_url} alt={product.name} className="mb-3 h-36 w-full rounded-xl object-cover" loading="lazy" />}<div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold">{product.name}</p><p className="text-xs text-[#1B6B4E]">Rp {Number(product.price).toLocaleString("id-ID")}</p></div><Badge label={product.status} color={product.status === "aktif" ? "green" : product.status === "ditolak" ? "orange" : "gray"} /></div><p className="mt-2 text-xs text-[#6B6558]">{product.description || "Tanpa deskripsi"}</p><div className="mt-3 flex gap-3"><button onClick={() => editProduct(product)} className="text-xs font-bold text-[#1B6B4E]">Edit</button><button onClick={() => removeProduct(product.id)} className="text-xs font-bold text-red-600">Hapus</button></div></article>)}</div>
+            <div className="space-y-2">{products.length === 0 ? <div className="bg-white border border-[#EEEBE4] rounded-2xl"><EmptyState icon={Package} title="Belum ada produk" desc="Tambahkan produk agar muncul di peta dan hasil pencarian pembeli." /></div> : products.map((product) => <article key={product.id} className="rounded-2xl border border-[#EEEBE4] bg-white p-4">{product.image_url && <img src={product.image_url} alt={product.name} className="mb-3 h-36 w-full rounded-xl object-cover" loading="lazy" />}<div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold">{product.name}</p><p className="text-xs text-[#1B6B4E]">Rp {Number(product.price).toLocaleString("id-ID")}</p></div><Badge label={product.status} color={product.status === "aktif" ? "green" : product.status === "ditolak" ? "orange" : "gray"} /></div><p className="mt-2 text-xs text-[#6B6558]">{product.description || "Tanpa deskripsi"}</p><div className="mt-3 flex gap-3"><button onClick={() => editProduct(product)} className="text-xs font-bold text-[#1B6B4E]">Edit</button><button onClick={() => removeProduct(product)} className="text-xs font-bold text-red-600">Hapus</button></div></article>)}</div>
           </>
         )}
+
+        {tab === "laporan" && <ReportCenter audienceLabel="Pemilik UMKM" />}
 
       </div>
     </AppShell>

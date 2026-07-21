@@ -19,7 +19,8 @@ export function PublicView({ onLogin }: { onLogin: () => void }) {
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("Semua");
   const [businesses, setBusinesses] = useState<UmkmMarker[]>([]);
-  const [products, setProducts] = useState<{ id: string; name: string; description: string; price: number; image_url: string | null; umkm: { nama_usaha: string; kategori: string } | null }[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string; description: string; price: number; image_url: string | null; umkm: { id: string; nama_usaha: string; kategori: string } | null }[]>([]);
+  const [focusRequest, setFocusRequest] = useState({ id: "", key: 0 });
   const [productLoadError, setProductLoadError] = useState("");
   const filters = ["Semua", "Makanan", "Kerajinan", "Fashion", "Pertanian", "Jasa"];
   const filteredBusinesses = useMemo(() => filterBusinesses(businesses, query, activeFilter), [activeFilter, businesses, query]);
@@ -27,7 +28,7 @@ export function PublicView({ onLogin }: { onLogin: () => void }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("products").select("id,name,description,price,image_url,umkm:umkm_id(nama_usaha,kategori)").eq("status", "aktif").order("created_at", { ascending: false })
+    supabase.from("products").select("id,name,description,price,image_url,umkm:umkm_id(id,nama_usaha,kategori)").eq("status", "aktif").order("created_at", { ascending: false })
       .then(({ data, error }) => { setProducts((data ?? []) as unknown as typeof products); setProductLoadError(error ? "Produk belum dapat dimuat. Coba muat ulang halaman." : ""); });
   }, []);
 
@@ -71,9 +72,9 @@ export function PublicView({ onLogin }: { onLogin: () => void }) {
             <p className="font-extrabold text-[#1A1714] text-sm" style={{ fontFamily: "var(--font-display)" }}>UMKM Terdekat</p>
             <span className="text-xs text-[#9B9489]">{filteredBusinesses.length} ditemukan</span>
           </div>
-          {filteredBusinesses.length === 0 ? <EmptyState icon={MapPin} title="Belum ada UMKM" desc="Coba kata kunci atau kategori lain." /> : <div className="space-y-2 px-4 pb-4">{filteredBusinesses.map((item) => <article key={item.id} className="rounded-2xl border border-[#EEEBE4] p-3"><p className="text-sm font-bold text-[#2A2520]">{item.nama_usaha}</p><p className="text-xs text-[#1B6B4E]">{item.kategori}</p><p className="mt-1 text-xs text-[#9B9489]">{item.alamat}</p></article>)}</div>}
+          {filteredBusinesses.length === 0 ? <EmptyState icon={MapPin} title="Belum ada UMKM" desc="Coba kata kunci atau kategori lain." /> : <div className="space-y-2 px-4 pb-4">{filteredBusinesses.map((item) => <button type="button" onClick={() => setFocusRequest((current) => ({ id: item.id, key: current.key + 1 }))} key={item.id} className="w-full rounded-2xl border border-[#EEEBE4] p-3 text-left transition-colors hover:bg-[#F8F5F0]"><p className="text-sm font-bold text-[#2A2520]">{item.nama_usaha}</p><p className="text-xs text-[#1B6B4E]">{item.kategori}</p><p className="mt-1 text-xs text-[#9B9489]">{item.alamat}</p></button>)}</div>}
           {productLoadError && <p className="mx-4 mb-4 rounded-xl bg-red-50 p-3 text-xs text-red-700">{productLoadError}</p>}
-          {filteredProducts.length > 0 && <section className="border-t border-[#EEEBE4] px-4 py-4"><div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-extrabold">Produk Aktif</h2><span className="text-xs text-[#9B9489]">{filteredProducts.length} produk</span></div><div className="space-y-2">{filteredProducts.map((item) => <article key={item.id} className="rounded-2xl bg-[#F8F5F0] p-3">{item.image_url && <img src={item.image_url} alt={item.name} className="mb-2 h-28 w-full rounded-xl object-cover" loading="lazy" />}<p className="text-sm font-bold">{item.name}</p><p className="text-xs font-semibold text-[#1B6B4E]">Rp {Number(item.price).toLocaleString("id-ID")}</p><p className="mt-1 text-xs text-[#9B9489]">{item.umkm?.nama_usaha ?? "UMKM"}</p></article>)}</div></section>}
+          {filteredProducts.length > 0 && <section className="border-t border-[#EEEBE4] px-4 py-4"><div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-extrabold">Produk Aktif</h2><span className="text-xs text-[#9B9489]">{filteredProducts.length} produk</span></div><div className="space-y-2">{filteredProducts.map((item) => <button type="button" disabled={!item.umkm} onClick={() => item.umkm && setFocusRequest((current) => ({ id: item.umkm!.id, key: current.key + 1 }))} key={item.id} className="w-full rounded-2xl bg-[#F8F5F0] p-3 text-left disabled:cursor-default">{item.image_url && <img src={item.image_url} alt={item.name} className="mb-2 h-28 w-full rounded-xl object-cover" loading="lazy" />}<p className="text-sm font-bold">{item.name}</p><p className="text-xs font-semibold text-[#1B6B4E]">Rp {Number(item.price).toLocaleString("id-ID")}</p><p className="mt-1 text-xs text-[#9B9489]">{item.umkm?.nama_usaha ?? "UMKM"}</p></button>)}</div></section>}
         </div>
 
         {/* CTA */}
@@ -92,7 +93,7 @@ export function PublicView({ onLogin }: { onLogin: () => void }) {
 
       {/* Map area */}
       <div className="flex-1 min-w-0 relative">
-        <MapCanvas className="absolute inset-0 w-full h-full" query={query} category={activeFilter} onMarkersChange={setBusinesses} />
+        <MapCanvas className="absolute inset-0 w-full h-full" query={query} category={activeFilter} onMarkersChange={setBusinesses} focusBusinessId={focusRequest.id || null} focusBusinessKey={focusRequest.key} />
 
         {/* Mobile top bar */}
         <div className="md:hidden absolute top-0 left-0 right-0 z-[1000] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] space-y-2">
@@ -134,8 +135,8 @@ export function PublicView({ onLogin }: { onLogin: () => void }) {
           {filteredBusinesses.length === 0 ? <div className="flex items-center gap-3 px-4 py-3 text-left">
             <div className="w-10 h-10 shrink-0 rounded-xl bg-[#F0EDE7] flex items-center justify-center"><MapPin size={18} className="text-[#B0A99E]" /></div>
             <div><p className="font-bold text-[#2A2520] text-sm">Belum ada UMKM</p><p className="text-[#9B9489] text-xs">UMKM lokal akan muncul di sini.</p></div>
-          </div> : <div className="flex gap-3 overflow-x-auto px-4 py-3">{filteredBusinesses.map((item) => <article key={item.id} className="min-w-52 rounded-2xl border p-3"><p className="truncate text-sm font-bold">{item.nama_usaha}</p><p className="text-xs text-[#1B6B4E]">{item.kategori}</p><p className="truncate text-xs text-[#9B9489]">{item.alamat}</p></article>)}</div>}
-          {filteredProducts.length > 0 && <div className="flex gap-3 overflow-x-auto border-t px-4 py-3">{filteredProducts.map((item) => <article key={item.id} className="min-w-48 rounded-2xl bg-[#F8F5F0] p-3">{item.image_url && <img src={item.image_url} alt="" className="mb-2 h-20 w-full rounded-xl object-cover" loading="lazy" />}<p className="truncate text-sm font-bold">{item.name}</p><p className="text-xs text-[#1B6B4E]">Rp {Number(item.price).toLocaleString("id-ID")}</p><p className="truncate text-xs text-[#9B9489]">{item.umkm?.nama_usaha ?? "UMKM"}</p></article>)}</div>}
+          </div> : <div className="flex gap-3 overflow-x-auto px-4 py-3">{filteredBusinesses.map((item) => <button type="button" onClick={() => setFocusRequest((current) => ({ id: item.id, key: current.key + 1 }))} key={item.id} className="min-w-52 rounded-2xl border p-3 text-left"><p className="truncate text-sm font-bold">{item.nama_usaha}</p><p className="text-xs text-[#1B6B4E]">{item.kategori}</p><p className="truncate text-xs text-[#9B9489]">{item.alamat}</p></button>)}</div>}
+          {filteredProducts.length > 0 && <div className="flex gap-3 overflow-x-auto border-t px-4 py-3">{filteredProducts.map((item) => <button type="button" disabled={!item.umkm} onClick={() => item.umkm && setFocusRequest((current) => ({ id: item.umkm!.id, key: current.key + 1 }))} key={item.id} className="min-w-48 rounded-2xl bg-[#F8F5F0] p-3 text-left disabled:cursor-default">{item.image_url && <img src={item.image_url} alt={item.name} className="mb-2 h-20 w-full rounded-xl object-cover" loading="lazy" />}<p className="truncate text-sm font-bold">{item.name}</p><p className="text-xs text-[#1B6B4E]">Rp {Number(item.price).toLocaleString("id-ID")}</p><p className="truncate text-xs text-[#9B9489]">{item.umkm?.nama_usaha ?? "UMKM"}</p></button>)}</div>}
           <div className="mx-4 mb-4 bg-[#1B6B4E] rounded-2xl p-3 flex items-center justify-between gap-3">
             <div>
               <p className="font-bold text-white text-sm" style={{ fontFamily: "var(--font-display)" }}>Punya usaha? Daftar gratis!</p>
@@ -147,11 +148,6 @@ export function PublicView({ onLogin }: { onLogin: () => void }) {
           </div>
         </div>
 
-        {/* Location pill */}
-        <div className="absolute top-4 right-4 hidden md:flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-white/60 shadow-sm rounded-2xl px-3 py-1.5">
-          <Navigation2 size={12} className="text-[#C9511F] fill-[#C9511F]" />
-          <span className="text-xs font-semibold text-[#2A2520]">Mendeteksi lokasi…</span>
-        </div>
       </div>
     </div>
   );

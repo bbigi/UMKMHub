@@ -14,7 +14,7 @@ import {
   Zap, Users, Globe,
 } from "lucide-react";
 
-type AdminTab = "ringkasan" | "umkm" | "konten";
+type AdminTab = "ringkasan" | "persetujuan" | "umkm" | "konten";
 
 
 type AdminUmkm = {
@@ -186,7 +186,7 @@ function AdminFeatureSettings() {
 }
 
 type ContentSection = "menu" | "reports" | "moderation" | "announcements" | "system";
-type AdminContentRecord = { id: string; subject?: string; reporter_name?: string; reporter_contact?: string; description?: string; status?: string; name?: string; price?: number; image_url?: string | null; title?: string; content?: string; active?: boolean };
+type AdminContentRecord = { id: string; subject?: string; reporter_name?: string; reporter_contact?: string; reporter_role?: string; report_type?: string; description?: string; status?: string; admin_response?: string; updated_at?: string; name?: string; price?: number; image_url?: string | null; title?: string; content?: string; active?: boolean };
 
 function AdminContentManager() {
   const [section, setSection] = useState<ContentSection>("menu");
@@ -200,7 +200,11 @@ function AdminContentManager() {
     if (!supabase || next === "menu") return;
     const table = next === "reports" ? "user_reports" : next === "moderation" ? "products" : next === "announcements" ? "announcements" : "platform_settings";
     const query = supabase.from(table).select("*");
-    const { data, error } = table === "platform_settings" ? await query.eq("id", true).single() : await query.order("created_at", { ascending: false });
+    const { data, error } = table === "platform_settings"
+      ? await query.eq("id", true).single()
+      : next === "moderation"
+        ? await query.eq("status", "menunggu").order("created_at", { ascending: false })
+        : await query.order("created_at", { ascending: false });
     if (error) return setMessage(`Gagal memuat: ${error.message}`);
     if (next === "system") setSystem(data as typeof system); else setRecords((data ?? []) as AdminContentRecord[]);
   };
@@ -208,7 +212,18 @@ function AdminContentManager() {
   const updateStatus = async (table: "user_reports" | "products", id: string, status: string) => {
     if (!supabase) return;
     const { error } = await supabase.from(table).update({ status }).eq("id", id);
-    if (error) setMessage(`Gagal memperbarui: ${error.message}`); else await loadSection(table === "products" ? "moderation" : "reports");
+    if (error) setMessage(`Gagal memperbarui: ${error.message}`);
+    else {
+      if (table === "products") setRecords((current) => current.filter((item) => item.id !== id));
+      await loadSection(table === "products" ? "moderation" : "reports");
+    }
+  };
+
+  const saveReport = async (item: AdminContentRecord) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("user_reports").update({ status: item.status, admin_response: item.admin_response?.trim() ?? "" }).eq("id", item.id);
+    if (error) setMessage(`Gagal menyimpan tanggapan: ${error.message}`);
+    else { await loadSection("reports"); setMessage("Status dan tanggapan admin berhasil disimpan."); }
   };
 
   const addAnnouncement = async () => {
@@ -248,7 +263,7 @@ function AdminContentManager() {
       <h2 className="text-lg font-bold text-[#1A1714]">{{ reports: "Laporan Pengguna", moderation: "Moderasi Produk", announcements: "Pengumuman", system: "Pengaturan Sistem", menu: "" }[section]}</h2>
       {message && <p className="rounded-xl bg-[#F2EDF8] px-3 py-2 text-xs text-[#6B3FA0]">{message}</p>}
 
-      {section === "reports" && <div className="space-y-2">{records.length === 0 && <EmptyState icon={AlertCircle} title="Belum ada laporan" desc="Laporan pengguna akan muncul di sini." />}{records.map((item) => <div key={item.id} className="rounded-2xl border bg-white p-4"><div className="flex justify-between gap-3"><div><p className="text-sm font-bold">{item.subject}</p><p className="text-xs text-[#9B9489]">{item.reporter_name} · {item.reporter_contact || "Tanpa kontak"}</p></div><Badge label={item.status ?? "baru"} color={item.status === "selesai" ? "green" : item.status === "baru" ? "orange" : "gray"} /></div><p className="my-3 text-sm text-[#6B6558]">{item.description}</p><select value={item.status} onChange={(e) => updateStatus("user_reports", item.id, e.target.value)} className="rounded-xl border px-3 py-2 text-xs"><option value="baru">Baru</option><option value="diproses">Diproses</option><option value="selesai">Selesai</option><option value="ditolak">Ditolak</option></select></div>)}</div>}
+      {section === "reports" && <div className="space-y-2">{records.length === 0 && <EmptyState icon={AlertCircle} title="Belum ada laporan" desc="Laporan pengguna akan muncul di sini." />}{records.map((item) => <div key={item.id} className="rounded-2xl border bg-white p-4"><div className="flex justify-between gap-3"><div><p className="text-sm font-bold">{item.subject}</p><p className="text-xs text-[#9B9489]">{item.reporter_name} · {item.reporter_contact || "Tanpa kontak"}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-[#6B3FA0]">{item.reporter_role || "pengguna"} · {item.report_type || "masalah"}</p></div><Badge label={item.status ?? "baru"} color={item.status === "selesai" ? "green" : item.status === "baru" ? "orange" : "gray"} /></div><p className="my-3 text-sm text-[#6B6558]">{item.description}</p><div className="space-y-2 rounded-xl bg-[#F8F5F0] p-3"><select value={item.status ?? "baru"} onChange={(event) => setRecords((current) => current.map((record) => record.id === item.id ? { ...record, status: event.target.value } : record))} className="w-full rounded-xl border bg-white px-3 py-2 text-xs"><option value="baru">Baru</option><option value="diproses">Diproses</option><option value="selesai">Selesai</option><option value="ditolak">Ditolak</option></select><textarea value={item.admin_response ?? ""} maxLength={4000} onChange={(event) => setRecords((current) => current.map((record) => record.id === item.id ? { ...record, admin_response: event.target.value } : record))} rows={3} placeholder="Tulis tanggapan atau catatan penanganan untuk pengirim" className="w-full rounded-xl border bg-white p-3 text-xs" /><button onClick={() => saveReport(item)} className="w-full rounded-xl bg-[#6B3FA0] py-2.5 text-xs font-bold text-white">Simpan Status & Tanggapan</button></div></div>)}</div>}
 
       {section === "moderation" && <div className="space-y-2">{records.length === 0 && <EmptyState icon={Package} title="Tidak ada produk" desc="Produk yang perlu ditinjau akan muncul di sini." />}{records.map((item) => <div key={item.id} className="rounded-2xl border bg-white p-4">{item.image_url && <img src={item.image_url} alt={item.name ?? "Produk"} className="mb-3 h-40 w-full rounded-xl object-cover" loading="lazy" />}<p className="text-sm font-bold">{item.name}</p><p className="text-xs text-[#9B9489]">Rp {Number(item.price).toLocaleString("id-ID")} · {item.status}</p><p className="my-2 text-sm text-[#6B6558]">{item.description}</p><div className="flex gap-2"><button onClick={() => updateStatus("products", item.id, "aktif")} className="rounded-xl bg-[#1B6B4E] px-3 py-2 text-xs font-bold text-white">Setujui</button><button onClick={() => updateStatus("products", item.id, "ditolak")} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Tolak</button></div></div>)}</div>}
 
@@ -258,6 +273,70 @@ function AdminContentManager() {
     </div>
 
   );
+}
+
+type PendingApproval = {
+  id: string;
+  kind: "umkm" | "product";
+  title: string;
+  detail: string;
+  imageUrl?: string | null;
+};
+
+function AdminApprovalQueue() {
+  const [items, setItems] = useState<PendingApproval[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+
+  const loadItems = async () => {
+    if (!supabase) { setMessage("Supabase belum dikonfigurasi."); setLoading(false); return; }
+    setLoading(true);
+    const [businesses, products] = await Promise.all([
+      supabase.from("umkm").select("id,nama_usaha,kategori,alamat").eq("status", "menunggu").order("created_at", { ascending: false }),
+      supabase.from("products").select("id,name,description,price,image_url").eq("status", "menunggu").order("created_at", { ascending: false }),
+    ]);
+    const error = businesses.error ?? products.error;
+    if (error) setMessage(`Gagal memuat antrean: ${error.message}`);
+    else {
+      setItems([
+        ...(businesses.data ?? []).map((item) => ({ id: item.id, kind: "umkm" as const, title: item.nama_usaha, detail: `${item.kategori} · ${item.alamat}` })),
+        ...(products.data ?? []).map((item) => ({ id: item.id, kind: "product" as const, title: item.name, detail: `Rp ${Number(item.price).toLocaleString("id-ID")} · ${item.description || "Tanpa deskripsi"}`, imageUrl: item.image_url })),
+      ]);
+      setMessage("");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { void loadItems(); }, []);
+
+  const decide = async (item: PendingApproval, status: "aktif" | "ditolak") => {
+    if (!supabase) return;
+    const table = item.kind === "umkm" ? "umkm" : "products";
+    const { error } = await supabase.from(table).update({ status }).eq("id", item.id);
+    if (error) return setMessage(`Gagal memperbarui ${item.title}: ${error.message}`);
+    setItems((current) => current.filter((record) => !(record.kind === item.kind && record.id === item.id)));
+    setMessage(`${item.title} berhasil ${status === "aktif" ? "disetujui" : "ditolak"}.`);
+  };
+
+  const businessCount = items.filter((item) => item.kind === "umkm").length;
+  const productCount = items.filter((item) => item.kind === "product").length;
+
+  return <div className="space-y-4">
+    <div className="grid grid-cols-2 gap-3">
+      <StatCard className="w-full min-w-0" label="Profil Menunggu" value={businessCount} icon={Store} color="bg-[#6B3FA0]" />
+      <StatCard className="w-full min-w-0" label="Produk Menunggu" value={productCount} icon={Package} color="bg-[#C9511F]" />
+    </div>
+    {message && <p className="rounded-xl bg-[#F2EDF8] px-3 py-2 text-xs text-[#6B3FA0]">{message}</p>}
+    {loading && <p className="py-8 text-center text-sm text-[#9B9489]">Memuat antrean persetujuan…</p>}
+    {!loading && items.length === 0 && <div className="rounded-2xl border bg-white"><EmptyState icon={CheckCircle} title="Semua sudah ditinjau" desc="Tidak ada profil UMKM atau produk yang menunggu persetujuan." /></div>}
+    <div className="space-y-3">
+      {items.map((item) => <article key={`${item.kind}-${item.id}`} className="overflow-hidden rounded-2xl border bg-white p-4 sm:flex sm:items-center sm:gap-4">
+        {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="mb-3 h-32 w-full rounded-xl object-cover sm:mb-0 sm:h-20 sm:w-24" loading="lazy" />}
+        <div className="min-w-0 flex-1"><span className="text-[10px] font-bold uppercase tracking-wider text-[#6B3FA0]">{item.kind === "umkm" ? "Profil UMKM" : "Produk"}</span><p className="mt-1 truncate text-sm font-bold">{item.title}</p><p className="mt-1 line-clamp-2 text-xs text-[#9B9489]">{item.detail}</p></div>
+        <div className="mt-3 flex gap-2 sm:mt-0"><button onClick={() => decide(item, "aktif")} className="flex-1 rounded-xl bg-[#1B6B4E] px-3 py-2 text-xs font-bold text-white">Setujui</button><button onClick={() => decide(item, "ditolak")} className="flex-1 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Tolak</button></div>
+      </article>)}
+    </div>
+  </div>;
 }
 
 export function AdminDashboard({ onLogout }: { onLogout: () => void }) {
@@ -279,10 +358,11 @@ export function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   }, []);
   const tabs = [
     { id: "ringkasan" as const, icon: Home, label: "Ringkasan" },
+    { id: "persetujuan" as const, icon: CheckCircle, label: "Persetujuan" },
     { id: "umkm" as const, icon: Store, label: "UMKM" },
     { id: "konten" as const, icon: FileText, label: "Konten" },
   ];
-  const titles: Record<AdminTab, string> = { ringkasan: "Ringkasan Platform", umkm: "UMKM", konten: "Konten" };
+  const titles: Record<AdminTab, string> = { ringkasan: "Ringkasan Platform", persetujuan: "Antrean Persetujuan", umkm: "UMKM", konten: "Konten" };
 
   return (
     <AppShell tabs={tabs} active={tab} onTabChange={(id) => setTab(id as AdminTab)}
@@ -312,6 +392,8 @@ export function AdminDashboard({ onLogout }: { onLogout: () => void }) {
         )}
 
         {tab === "umkm" && <AdminUmkmManager />}
+
+        {tab === "persetujuan" && <AdminApprovalQueue />}
 
         {tab === "konten" && (
           <AdminContentManager />

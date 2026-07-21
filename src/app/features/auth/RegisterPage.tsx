@@ -29,8 +29,9 @@ export function RegisterPage({ onBack, onSuccess }: { onBack: () => void; onSucc
     if (!supabase) return setRegisterMessage("Supabase belum dikonfigurasi.");
     if (!f.nama || !f.hp || !f.email || !f.usaha || !f.kategori || !f.kota || f.pass.length < 8) return setRegisterMessage("Lengkapi semua data wajib dan gunakan kata sandi minimal 8 karakter.");
     setRegistering(true); setRegisterMessage("");
+    const normalizedEmail = f.email.trim().toLowerCase();
     const { data, error } = await supabase.auth.signUp({
-      email: f.email,
+      email: normalizedEmail,
       password: f.pass,
       options: { data: { role: "umkm", nama: f.nama, phone: f.hp, nama_usaha: f.usaha, kategori: f.kategori, deskripsi: f.desk, alamat: f.kota } },
     });

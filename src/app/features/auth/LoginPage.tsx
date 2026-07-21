@@ -44,8 +44,16 @@ export function LoginPage({ onBack, onSuccess, onRegister }: {
     if (!supabase) return setAuthMessage("Supabase belum dikonfigurasi.");
     if (!email || !pass || !selected) return setAuthMessage("Lengkapi email dan kata sandi.");
     setAuthLoading(true); setAuthMessage("");
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    if (error || !data.user) { setAuthLoading(false); return setAuthMessage("Email atau kata sandi tidak benar."); }
+    const normalizedEmail = email.trim().toLowerCase();
+    const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password: pass });
+    if (error || !data.user) {
+      setAuthLoading(false);
+      const message = error?.message.toLowerCase() ?? "";
+      if (message.includes("email not confirmed")) return setAuthMessage("Email belum dikonfirmasi. Buka email dari Supabase lalu klik tautan konfirmasi.");
+      if (message.includes("invalid login credentials")) return setAuthMessage("Email atau kata sandi tidak cocok. Pastikan email sudah terdaftar dan tidak ada spasi tambahan.");
+      if (message.includes("rate limit")) return setAuthMessage("Terlalu banyak percobaan masuk. Tunggu beberapa menit lalu coba kembali.");
+      return setAuthMessage(`Tidak dapat masuk: ${error?.message ?? "akun tidak ditemukan"}`);
+    }
     // Admin and government roles must come from trusted app_metadata. A public
     // signup can only claim the non-privileged UMKM role in user_metadata.
     const trustedRole = data.user.app_metadata?.role;

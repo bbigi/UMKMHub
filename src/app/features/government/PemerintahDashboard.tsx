@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { AppShell } from "../../layouts/AppShell";
-import { AnnouncementBanner, ReportIssueButton, StatCard, Badge, MapCanvas } from "../../shared/components";
+import { AnnouncementBanner, StatCard, Badge, MapCanvas } from "../../shared/components";
 import { AdminUmkmManager } from "../admin/AdminDashboard";
-import { Store, BarChart3, FileText, Layers, CheckCircle, Clock, AlertCircle, Download, LogOut, MapPin } from "lucide-react";
+import { ReportCenter } from "../reports/ReportCenter";
+import { Store, BarChart3, FileText, Layers, CheckCircle, Clock, AlertCircle, Download, LogOut, MapPin, MessageSquareWarning } from "lucide-react";
 
-type GovTab = "ringkasan" | "daftar" | "laporan";
+type GovTab = "ringkasan" | "daftar" | "laporan" | "aduan";
 type GovernmentUmkm = {
   id: string;
   nama_usaha: string;
@@ -13,6 +14,8 @@ type GovernmentUmkm = {
   alamat: string;
   status: "menunggu" | "aktif" | "ditolak";
   created_at: string;
+  latitude: number;
+  longitude: number;
 };
 
 const escapeCsv = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
@@ -24,7 +27,7 @@ export function PemerintahDashboard({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     if (!supabase) return setLoadMessage("Supabase belum dikonfigurasi.");
-    supabase.from("umkm").select("id,nama_usaha,kategori,alamat,status,created_at").order("created_at", { ascending: false })
+    supabase.from("umkm").select("id,nama_usaha,kategori,alamat,status,created_at,latitude,longitude").order("created_at", { ascending: false })
       .then(({ data, error }) => {
         setItems((data ?? []) as GovernmentUmkm[]);
         setLoadMessage(error ? `Gagal memuat data: ${error.message}` : "");
@@ -37,6 +40,13 @@ export function PemerintahDashboard({ onLogout }: { onLogout: () => void }) {
     menunggu: items.filter((item) => item.status === "menunggu").length,
     ditolak: items.filter((item) => item.status === "ditolak").length,
   };
+  const categorySummary = Object.entries(items.reduce<Record<string, number>>((result, item) => {
+    result[item.kategori] = (result[item.kategori] ?? 0) + 1;
+    return result;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  const largestCategory = Math.max(1, ...categorySummary.map(([, count]) => count));
+  const mappedCount = items.filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude)).length;
+  const mappedPercentage = items.length ? Math.round((mappedCount / items.length) * 100) : 0;
 
   const downloadCsv = (kind: "data" | "kategori" | "bulanan") => {
     let rows: (string | number)[][];
@@ -73,8 +83,9 @@ export function PemerintahDashboard({ onLogout }: { onLogout: () => void }) {
     { id: "ringkasan" as const, icon: BarChart3, label: "Ringkasan" },
     { id: "daftar" as const, icon: Layers, label: "Daftar" },
     { id: "laporan" as const, icon: FileText, label: "Laporan" },
+    { id: "aduan" as const, icon: MessageSquareWarning, label: "Aduan" },
   ];
-  const titles: Record<GovTab, string> = { ringkasan: "Ringkasan", daftar: "Daftar UMKM", laporan: "Laporan" };
+  const titles: Record<GovTab, string> = { ringkasan: "Ringkasan", daftar: "Daftar UMKM", laporan: "Ekspor Laporan", aduan: "Laporan ke Admin" };
 
   return (
     <AppShell tabs={tabs} active={tab} onTabChange={(id) => setTab(id as GovTab)}
@@ -90,6 +101,14 @@ export function PemerintahDashboard({ onLogout }: { onLogout: () => void }) {
           <StatCard className="w-full min-w-0" label="Menunggu" value={stats.menunggu} icon={Clock} color="bg-[#C9511F]" />
           <StatCard className="w-full min-w-0" label="Ditolak" value={stats.ditolak} icon={AlertCircle} color="bg-[#8D5A2B]" />
         </div>
+        <section className="rounded-2xl border bg-white p-4">
+          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-extrabold">Sebaran kategori</h2><span className="text-xs text-[#9B9489]">{categorySummary.length} kategori</span></div>
+          {categorySummary.length === 0 ? <p className="text-xs text-[#9B9489]">Belum ada data kategori.</p> : <div className="space-y-3">{categorySummary.map(([name, count]) => <div key={name}><div className="mb-1 flex justify-between text-xs"><span className="font-semibold text-[#2A2520]">{name}</span><span className="text-[#6B6558]">{count} UMKM</span></div><div className="h-2 overflow-hidden rounded-full bg-[#E5EEF8]"><div className="h-full rounded-full bg-[#2E5B8A]" style={{ width: `${Math.max(8, (count / largestCategory) * 100)}%` }} /></div></div>)}</div>}
+        </section>
+        <section className="flex items-center gap-4 rounded-2xl border border-[#C9D9EA] bg-[#F5F9FD] p-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2E5B8A] text-white"><MapPin size={18} /></div>
+          <div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-3"><p className="text-sm font-extrabold">Kelengkapan data spasial</p><span className="text-sm font-extrabold text-[#2E5B8A]">{mappedPercentage}%</span></div><p className="mt-1 text-xs text-[#6B6558]">{mappedCount} dari {items.length} UMKM memiliki titik koordinat dan siap dianalisis di GIS.</p><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#DDE8F5]"><div className="h-full rounded-full bg-[#2E5B8A]" style={{ width: `${mappedPercentage}%` }} /></div></div>
+        </section>
         <div className="h-[260px] overflow-hidden rounded-2xl border lg:h-[360px]"><MapCanvas className="h-full w-full" /></div>
         <section className="space-y-2">
           <div className="flex items-center justify-between"><h2 className="text-sm font-extrabold">UMKM terbaru</h2><span className="text-xs text-[#9B9489]">{items.length} data</span></div>
@@ -108,7 +127,7 @@ export function PemerintahDashboard({ onLogout }: { onLogout: () => void }) {
         ].map((report) => { const Icon = report.icon; return <article key={report.id} className="flex items-center gap-4 rounded-2xl border bg-white p-4"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#E5EEF8]"><Icon size={16} className="text-[#2E5B8A]" /></div><div className="flex-1"><p className="text-sm font-bold">{report.label}</p><p className="text-xs text-[#9B9489]">{report.desc}</p></div><button disabled={items.length === 0} onClick={() => downloadCsv(report.id)} className="flex items-center gap-1 text-xs font-bold text-[#2E5B8A] disabled:opacity-40"><Download size={12} /> Unduh CSV</button></article>; })}
         <p className="text-xs text-[#9B9489]">Laporan dibuat langsung dari {items.length} data UMKM yang dapat diakses akun pemerintah.</p>
       </div>}
-      <ReportIssueButton />
+      {tab === "aduan" && <div className="p-4 pb-6"><ReportCenter audienceLabel="Pemerintah" /></div>}
     </AppShell>
   );
 }
