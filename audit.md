@@ -107,6 +107,7 @@ Migrasi terkait:
 - [x] Menambahkan unit test filter katalog dengan Vitest.
 - [x] Menambahkan perintah `npm run check` untuk type-check, test, dan build.
 - [x] Menambahkan CSP, HSTS, anti-framing, referrer policy, dan permissions policy.
+- [x] Menyamakan `engines.node` dengan Node.js 24.x pada Vercel agar konfigurasi runtime deployment konsisten tanpa warning override.
 - [x] Audit dependency npm terakhir menemukan 0 kerentanan.
 
 ## Verifikasi
